@@ -1,0 +1,246 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: VPC for environments
+
+Parameters:
+  # AvailabityZones:
+  # Type: List<AWS::EC2::AvailabilityZone::Name>
+  EnvType:
+    Description: The environment type
+    Type: String
+    Default: dev
+    AllowedValues: [prod, dev, release]
+    ConstraintDescription: must be a prod, dev or release
+
+Resources:
+  CertainLendingVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.10.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref EnvType, vpc]]
+
+  # Internet Gateway
+  CertainLendingInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref EnvType, internet-gateway]]
+        - Key: EnvType
+          Value: !Ref EnvType
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref CertainLendingInternetGateway
+      VpcId: !Ref CertainLendingVPC
+
+  # Public Route Table
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref CertainLendingVPC
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref EnvType, public-route-table]]
+        - Key: EnvType
+          Value: !Ref EnvType
+  Route:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref CertainLendingInternetGateway
+      RouteTableId: !Ref PublicRouteTable
+  SubnetPublicRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetA
+  # SubnetPublicRouteTableAssociation2:
+  #   Type: AWS::EC2::SubnetRouteTableAssociation
+  #   Properties:
+  #     RouteTableId: !Ref PublicRouteTable
+  #     SubnetId: !Ref PublicSubnetB
+  # SubnetPublicRouteTableAssociation3:
+  #   Type: AWS::EC2::SubnetRouteTableAssociation
+  #   Properties:
+  #     RouteTableId: !Ref PublicRouteTable
+  #     SubnetId: !Ref PublicSubnetC
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - 0
+        - Fn::GetAZs: !Ref AWS::Region
+      CidrBlock: 10.10.10.0/24
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref CertainLendingVPC
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref EnvType, public-subnet-A]]
+        - Key: EnvType
+          Value: !Ref EnvType
+  # PublicSubnetB:
+  #   Type: AWS::EC2::Subnet
+  #   Properties:
+  #     AvailabilityZone: !Ref AvailabityZoneB
+  #     CidrBlock: 10.10.20.0/24
+  #     MapPublicIpOnLaunch: true
+  #     VpcId: !Ref CertainLendingVPC
+  #     Tags:
+  #       - Key: Name
+  #         Value: !Join ["-", [!Ref EnvType, public-subnet-B]]
+  #       - Key: EnvType
+  #         Value: !Ref EnvType
+  # PublicSubnetC:
+  #   Type: AWS::EC2::Subnet
+  #   Properties:
+  #     AvailabilityZone: !Ref AvailabityZoneC
+  #     CidrBlock: 10.10.30.0/24
+  #     MapPublicIpOnLaunch: true
+  #     VpcId: !Ref CertainLendingVPC
+  #     Tags:
+  #       - Key: Name
+  #         Value: !Join ["-", [!Ref EnvType, public-subnet-C]]
+  #       - Key: EnvType
+  #         Value: !Ref EnvType
+
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: CertainLendingVPC
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+          - ElasticIP
+          - AllocationId
+      SubnetId: !Ref PublicSubnetA
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref EnvType, nat-gatway]]
+        - Key: EnvType
+          Value: !Ref EnvType
+
+  # Private Route Table
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref CertainLendingVPC
+      Tags:
+        - Key: Name
+          Value: CertainLendingPrivateRouteTable
+        - Key: EnvType
+          Value: !Ref EnvType
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+      RouteTableId: !Ref PrivateRouteTable
+  PrivateSubnetPublicRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnetA
+  PrivateSubnetPublicRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnetB
+  PrivateSubnetPublicRouteTableAssociation3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnetC
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - 0
+        - Fn::GetAZs: !Ref AWS::Region
+      CidrBlock: 10.10.40.0/24
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref CertainLendingVPC
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref EnvType, private-subnet-A]]
+        - Key: EnvType
+          Value: !Ref EnvType
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - 1
+        - Fn::GetAZs: !Ref AWS::Region
+      CidrBlock: 10.10.50.0/24
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref CertainLendingVPC
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref EnvType, private-subnet-B]]
+        - Key: EnvType
+          Value: !Ref EnvType
+  PrivateSubnetC:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - 2
+        - Fn::GetAZs: !Ref AWS::Region
+      CidrBlock: 10.10.60.0/24
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref CertainLendingVPC
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref EnvType, private-subnet-C]]
+        - Key: EnvType
+          Value: !Ref EnvType
+
+Outputs:
+  StackVPC:
+    Description: The ID of the VPC
+    Value: !Ref CertainLendingVPC
+    Export:
+      Name: !Join ["-", [!Ref EnvType, VpcId]]
+  StackVPCCiderBlock:
+    Description: The CidrBlock of the VPC
+    Value: !GetAtt CertainLendingVPC.CidrBlock
+    Export:
+      Name: !Join ["-", [!Ref EnvType, VpcCidrBlock]]
+  PublicSubnetA:
+    Description: ID of public subnet
+    Value: !Ref PublicSubnetA
+    Export:
+      Name: !Join ["-", [!Ref EnvType, PublicSubnetA]]
+  # PublicSubnetB:
+  #   Description: The Instance ID
+  #   Value: !Ref PublicSubnetB
+  #   Export:
+  #     Name: !Join ["-", [!Ref EnvType, PublicSubnetB]]
+  # PublicSubnetC:
+  #   Description: The Instance ID
+  #   Value: !Ref PublicSubnetC
+  #   Export:
+  #     Name: !Join ["-", [!Ref EnvType, PublicSubnetC]]
+  PrivateSubnetA:
+    Description: ID of Private subnet
+    Value: !Ref PrivateSubnetA
+    Export:
+      Name: !Join ["-", [!Ref EnvType, PrivateSubnetA]]
+  PrivateSubnetB:
+    Description: The Instance ID
+    Value: !Ref PrivateSubnetB
+    Export:
+      Name: !Join ["-", [!Ref EnvType, PrivateSubnetB]]
+  PrivateSubnetC:
+    Description: The Instance ID
+    Value: !Ref PrivateSubnetC
+    Export:
+      Name: !Join ["-", [!Ref EnvType, PrivateSubnetC]]
